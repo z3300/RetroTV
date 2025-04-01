@@ -73,6 +73,12 @@
       background: #222;
       color: #EEE;
     }
+    /* Countdown display */
+    #countdown-display {
+      margin-top: 1rem;
+      text-align: center;
+      font-size: 1.2rem;
+    }
     /* Responsive tweaks */
     @media (max-width: 600px) {
       h1 {
@@ -116,6 +122,11 @@
         <input type="number" id="shuffle-timer" value="10" min="1" max="60">
         <button onclick="setShuffleTimer()">Set Timer</button>
       </div>
+      
+      <!-- Countdown Display -->
+      <div id="countdown-display">
+        Next change in: <span id="counter">--</span> seconds
+      </div>
     </div>
   </div>
 
@@ -150,7 +161,8 @@
       .then(response => response.json())
       .then(data => {
         console.log("Auto Mode:", data);
-        document.getElementById("mode-status").innerText = "Current Auto Mode: " + data.mode.charAt(0).toUpperCase() + data.mode.slice(1);
+        let modeText = data.mode ? data.mode.charAt(0).toUpperCase() + data.mode.slice(1) : "Off";
+        document.getElementById("mode-status").innerText = "Current Auto Mode: " + modeText;
       })
       .catch(error => console.error('Error:', error));
     }
@@ -166,6 +178,22 @@
       .then(data => console.log("Shuffle Timer set:", data))
       .catch(error => console.error('Error:', error));
     }
+    
+    // Poll the /status endpoint every second for countdown updates.
+    function updateStatus() {
+      fetch('/status')
+        .then(response => response.json())
+        .then(data => {
+          // Update the auto mode status display.
+          let mode = data.auto_mode ? data.auto_mode : "Off";
+          document.getElementById("mode-status").innerText = "Current Auto Mode: " + mode.charAt(0).toUpperCase() + mode.slice(1);
+          // Update the countdown timer.
+          document.getElementById("counter").innerText = data.countdown;
+        })
+        .catch(error => console.error("Error fetching status:", error));
+    }
+    
+    setInterval(updateStatus, 1000);
   </script>
 </body>
 </html>

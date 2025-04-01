@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Retro TV Remote Control</title>
+  <style>
+    /* Base styles */
+    body {
+      background-color: #111;
+      color: #EEE;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      margin: 0;
+      padding: 1rem;
+    }
+    /* Center container for content */
+    .container {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+    h1 {
+      font-size: 2.5rem;
+      margin-bottom: 1.5rem;
+      font-weight: 500;
+    }
+    /* Flexbox layout for buttons */
+    .button-container {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      margin: 1rem 0;
+    }
+    button {
+      background: #222;
+      color: #EEE;
+      border: 1px solid #444;
+      border-radius: 6px;
+      padding: 0.75rem 1.25rem;
+      font-size: 1rem;
+      cursor: pointer;
+      margin: 0.5rem;
+      flex: 1 1 auto;
+      min-width: 120px;
+      transition: background 0.2s, border-color 0.2s;
+    }
+    button:hover {
+      background: #333;
+      border-color: #666;
+    }
+    /* Section styling */
+    .auto-mode {
+      border-top: 1px solid #444;
+      padding-top: 1rem;
+      margin-top: 2rem;
+    }
+    .mode-status {
+      font-size: 1.2rem;
+      margin-bottom: 1rem;
+    }
+    .timer-control {
+      margin-top: 1rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.5rem;
+    }
+    input[type="number"] {
+      width: 80px;
+      padding: 0.5rem;
+      border: 1px solid #444;
+      border-radius: 4px;
+      background: #222;
+      color: #EEE;
+    }
+    /* Responsive tweaks */
+    @media (max-width: 600px) {
+      h1 {
+        font-size: 2rem;
+      }
+      button {
+        padding: 0.75rem 1rem;
+        font-size: 0.9rem;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>Retro TV Remote Control</h1>
+    
+    <!-- Channel Buttons -->
+    <div class="button-container" id="channel-buttons">
+      {% for channel in channels %}
+        <button onclick="switchChannel('{{ channel }}')">{{ channel }}</button>
+      {% endfor %}
+    </div>
+    
+    <!-- Next Video Button -->
+    <div class="button-container">
+      <button onclick="nextVideo()">Next Video</button>
+    </div>
+    
+    <!-- Auto Mode Controls -->
+    <div class="auto-mode">
+      <div class="mode-status" id="mode-status">Current Auto Mode: Off</div>
+      <div class="button-container">
+        <button onclick="setAutoMode('global')">Global</button>
+        <button onclick="setAutoMode('local')">Local</button>
+        <button onclick="setAutoMode('off')">Off</button>
+      </div>
+      
+      <!-- Shuffle Timer Control -->
+      <div class="timer-control">
+        <label for="shuffle-timer">Shuffle Timer (sec):</label>
+        <input type="number" id="shuffle-timer" value="10" min="1" max="60">
+        <button onclick="setShuffleTimer()">Set Timer</button>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function switchChannel(channel) {
+      fetch('/switch_channel', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channel: channel })
+      })
+      .then(response => response.json())
+      .then(data => console.log("Switch:", data))
+      .catch(error => console.error('Error:', error));
+    }
+    
+    function nextVideo() {
+      fetch('/next_video', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
+      })
+      .then(response => response.json())
+      .then(data => console.log("Next Video:", data))
+      .catch(error => console.error('Error:', error));
+    }
+    
+    function setAutoMode(mode) {
+      fetch('/set_auto_mode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode: mode })
+      })
+      .then(response => response.json())
+      .then(data => {
+        console.log("Auto Mode:", data);
+        document.getElementById("mode-status").innerText = "Current Auto Mode: " + data.mode.charAt(0).toUpperCase() + data.mode.slice(1);
+      })
+      .catch(error => console.error('Error:', error));
+    }
+    
+    function setShuffleTimer() {
+      const timerValue = document.getElementById('shuffle-timer').value;
+      fetch('/set_shuffle_timer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ timer: timerValue })
+      })
+      .then(response => response.json())
+      .then(data => console.log("Shuffle Timer set:", data))
+      .catch(error => console.error('Error:', error));
+    }
+  </script>
+</body>
+</html>

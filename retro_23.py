@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor
 # -----------------------------------------------------------------------------
 
 # Define base paths to search for channel folders.
-BASE_PATHS = [os.getcwd(), "/mnt/myhdd/compressed_vids"]
+BASE_PATHS = [os.getcwd(), "/mnt/myhdd/compressed_vid"]
 
 # Auto-detect channels: scan each base path and include subdirectories with "channel" in the name.
 channels = {}  # mapping from channel name to its full path
@@ -23,7 +23,6 @@ for base in BASE_PATHS:
         for entry in os.listdir(base):
             full_path = os.path.join(base, entry)
             if os.path.isdir(full_path) and "channel" in entry.lower():
-                # If channel name already exists from another base, you might decide to override or keep both.
                 channels[entry] = full_path
 
 print("Detected channels:", list(channels.keys()))
@@ -93,7 +92,7 @@ channel_durations = {}  # channel name -> list of corresponding durations
 
 def init_playlists():
     """
-    Scans each channel folder (using the full path from channels dict) and builds playlists.
+    Scans each channel folder and builds playlists.
     Uses ThreadPoolExecutor for parallel processing.
     """
     for ch, folder_path in channels.items():
@@ -157,14 +156,9 @@ def start_mpv():
         print("No video found to start mpv.")
         sys.exit(1)
     cmd = [
-        "mpv", 
-        "--loop", 
-        "--hwdec=mmal", 
-        "--no-input-default-bindings",
-        "--input-ipc-server=" + IPC_SOCKET, 
-        "--quiet",
-        f"--start={offset}", 
-        video
+        "mpv", "--loop", "--hwdec=mmal", "--no-input-default-bindings",
+        "--input-ipc-server=" + IPC_SOCKET, "--quiet",
+        f"--start={offset}", video
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     timeout = 5  # seconds
@@ -192,10 +186,11 @@ def send_mpv_command(command):
     except Exception as e:
         print("DEBUG: Error sending command to mpv:", e)
 
-def switch_channel(channel):
+def switch_channel(channel, use_random_offset=False):
     """
     Switches to the specified channel with a transition.
     Plays the transition video then loads the scheduled video at its computed offset.
+    If use_random_offset is True, a random offset is used instead of the scheduled offset.
     """
     global current_channel
     current_channel = channel
@@ -206,22 +201,28 @@ def switch_channel(channel):
         time.sleep(TRANSITION_LENGTH)
     else:
         print("DEBUG: Transition video not found; skipping transition.")
-    video, offset = compute_current_video_and_offset(channel)
+    video, scheduled_offset = compute_current_video_and_offset(channel)
     if video is None:
         print(f"DEBUG: Channel '{channel}' has no videos!")
         return
-    print(f"DEBUG: Switching to channel {channel}: video {video}, offset {offset:.2f} seconds.")
+    if use_random_offset:
+        duration = get_video_duration(video)
+        offset = random.uniform(0, duration * 0.8) if duration > 0 else 0
+        print(f"DEBUG: Switching to channel {channel}: video {video}, using random offset {offset:.2f} seconds.")
+    else:
+        offset = scheduled_offset
+        print(f"DEBUG: Switching to channel {channel}: video {video}, using scheduled offset {offset:.2f} seconds.")
     load_command = {"command": ["loadfile", video, "replace"]}
     send_mpv_command(load_command)
     time.sleep(0.3)
     seek_command = {"command": ["set_property", "time-pos", offset]}
     send_mpv_command(seek_command)
 
-def next_video():
+def next_video(use_random_offset=False):
     """
     Switches to a random video in the current channel.
-    The new video starts at an offset computed as (current time modulo video duration),
-    mimicking the scheduled start time.
+    If use_random_offset is True, a random start offset is chosen.
+    Otherwise, the offset is computed based on current time.
     """
     global current_channel
     if current_channel is None:
@@ -233,8 +234,12 @@ def next_video():
         return
     chosen_video = random.choice(playlist)
     duration = get_video_duration(chosen_video)
-    offset = (get_seconds_since_midnight() % duration) if duration > 0 else 0
-    print(f"DEBUG: Randomly selected next video in channel {current_channel}: {chosen_video} with offset {offset:.2f}s")
+    if use_random_offset:
+        offset = random.uniform(0, duration * 0.8) if duration > 0 else 0
+        print(f"DEBUG: Randomly selected next video in channel {current_channel}: {chosen_video} with random offset {offset:.2f}s")
+    else:
+        offset = (get_seconds_since_midnight() % duration) if duration > 0 else 0
+        print(f"DEBUG: Next video in channel {current_channel}: {chosen_video} with scheduled offset {offset:.2f}s")
     if os.path.exists(TRANSITION_VIDEO):
         print("DEBUG: Playing transition video for next video.")
         transition_command = {"command": ["loadfile", TRANSITION_VIDEO, "replace"]}
@@ -282,15 +287,15 @@ def auto_mode_loop():
             if auto_mode == "global":
                 random_channel = get_next_random_channel()
                 print(f"DEBUG: Auto mode (global) switching to channel: {random_channel}")
-                switch_channel(random_channel)
+                switch_channel(random_channel, use_random_offset=True)
             elif auto_mode == "shuffle":
                 if current_channel is None:
                     random_channel = get_next_random_channel()
                     print(f"DEBUG: Auto mode (shuffle) no current channel; switching to {random_channel}")
-                    switch_channel(random_channel)
+                    switch_channel(random_channel, use_random_offset=True)
                 else:
                     print("DEBUG: Auto mode (shuffle) switching to next video in current channel.")
-                    next_video()
+                    next_video(use_random_offset=True)
         else:
             time.sleep(1)
 
@@ -317,7 +322,7 @@ def terminal_input_thread():
             mpv_process.wait()
             os._exit(0)
         elif lower == 'next':
-            next_video()
+            next_video(use_random_offset=True)
         elif lower.startswith("auto"):
             tokens = lower.split()
             if len(tokens) == 2 and tokens[1] in ["global", "shuffle"]:
@@ -329,7 +334,7 @@ def terminal_input_thread():
             else:
                 print("Unknown auto mode command. Use 'auto global', 'auto shuffle', or 'auto off'.")
         elif cmd_input in channels:
-            switch_channel(cmd_input)
+            switch_channel(cmd_input, use_random_offset=True)
         else:
             print("Unknown command. Available channels:", ", ".join(channels.keys()), "or 'next', or auto commands.")
 

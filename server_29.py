@@ -10,7 +10,7 @@ app = Flask(__name__)
 # Raspberry Pi Version:
 #  - BASE_PATH is set to the current working directory.
 #  - Channels are auto-detected: only subdirectories whose names include "channel"
-#    (case-insensitive) from both the current working directory and /mnt/ssd/compressed_vids.
+#    (case-insensitive) from both the current working directory and /mnt/myhdd/compressed_vids.
 #  - Duration caching and parallel processing are used to speed up startup.
 #  - Auto mode feature: every auto_interval seconds the video changes,
 #      either by switching channels (global) or shuffling videos within the current channel (local).
@@ -150,9 +150,11 @@ def send_mpv_command(command):
     except Exception as e:
         return str(e)
 
-def play_transition_then_load(channel):
+def play_transition_then_load(channel, use_random_offset=False):
     """
     Plays the transition video, then loads the scheduled video for the channel.
+    If use_random_offset is True, a random start offset is chosen.
+    Otherwise, the offset is determined by the current time.
     """
     global current_channel
     current_channel = channel
@@ -163,27 +165,28 @@ def play_transition_then_load(channel):
         time.sleep(TRANSITION_LENGTH)
     else:
         print("DEBUG: Transition video not found; skipping transition (web).")
-    video, _ = compute_current_video_and_offset(channel)  # Ignore the computed offset
+    video, scheduled_offset = compute_current_video_and_offset(channel)
     if not video:
         print(f"DEBUG: Channel '{channel}' has no videos!")
         return
-    
-    # Get video duration and calculate random start position
-    duration = get_video_duration(video)
-    # Start somewhere in the first 80% of the video to ensure there's enough play time
-    random_offset = random.uniform(0, duration * 0.8) if duration > 0 else 0
-    
-    print(f"DEBUG: Loading channel {channel} video: {video} @ random offset {random_offset:.2f}s")
+    if use_random_offset:
+        duration = get_video_duration(video)
+        offset = random.uniform(0, duration * 0.8) if duration > 0 else 0
+        print(f"DEBUG: Loading channel {channel} video: {video} @ random offset {offset:.2f}s")
+    else:
+        offset = scheduled_offset
+        print(f"DEBUG: Loading channel {channel} video: {video} @ scheduled offset {offset:.2f}s")
     load_cmd = {"command": ["loadfile", video, "replace"]}
     send_mpv_command(load_cmd)
     time.sleep(0.3)
-    seek_cmd = {"command": ["set_property", "time-pos", random_offset]}
+    seek_cmd = {"command": ["set_property", "time-pos", offset]}
     send_mpv_command(seek_cmd)
 
-def play_transition_then_next():
+def play_transition_then_next(use_random_offset=False):
     """
-    Plays the transition video, then randomly selects a video from the current channel.
-    The starting position is randomly chosen within the video.
+    Plays the transition video, then selects the next video in the current channel.
+    If use_random_offset is True, a random start offset is chosen.
+    Otherwise, the offset is set to 0.
     """
     global current_channel
     if current_channel is None:
@@ -201,12 +204,14 @@ def play_transition_then_next():
     else:
         chosen_video = playlist[0]
     
-    # Get video duration and calculate random start position
-    duration = get_video_duration(chosen_video)
-    # Start somewhere in the first 80% of the video to ensure there's enough play time
-    random_offset = random.uniform(0, duration * 0.8) if duration > 0 else 0
+    if use_random_offset:
+        duration = get_video_duration(chosen_video)
+        offset = random.uniform(0, duration * 0.8) if duration > 0 else 0
+        print(f"DEBUG: Randomly selected next video in channel {current_channel}: {chosen_video} with random offset {offset:.2f}s")
+    else:
+        offset = 0
+        print(f"DEBUG: Next video in channel {current_channel}: {chosen_video} with scheduled offset {offset:.2f}s")
     
-    print(f"DEBUG: Randomly selected next video in channel {current_channel}: {chosen_video} with random offset {random_offset:.2f}s")
     if os.path.exists(TRANSITION_VIDEO):
         print("DEBUG: Playing transition video (web) for next video.")
         transition_cmd = {"command": ["loadfile", TRANSITION_VIDEO, "replace"]}
@@ -215,7 +220,7 @@ def play_transition_then_next():
     load_cmd = {"command": ["loadfile", chosen_video, "replace"]}
     send_mpv_command(load_cmd)
     time.sleep(0.3)
-    seek_cmd = {"command": ["set_property", "time-pos", random_offset]}
+    seek_cmd = {"command": ["set_property", "time-pos", offset]}
     send_mpv_command(seek_cmd)
 
 # ----------------------------------------------------------------
@@ -257,15 +262,15 @@ def auto_mode_loop():
             if auto_mode == "global":
                 random_channel = get_next_random_channel()
                 print(f"DEBUG: Auto mode (global) switching to channel: {random_channel}")
-                play_transition_then_load(random_channel)
+                play_transition_then_load(random_channel, use_random_offset=True)
             elif auto_mode == "local":
                 if current_channel is None:
                     random_channel = get_next_random_channel()
                     print(f"DEBUG: Auto mode (local) no current channel; switching to {random_channel}")
-                    play_transition_then_load(random_channel)
+                    play_transition_then_load(random_channel, use_random_offset=True)
                 else:
                     print("DEBUG: Auto mode (local) switching to next video in current channel.")
-                    play_transition_then_next()
+                    play_transition_then_next(use_random_offset=True)
         else:
             time.sleep(1)
 
@@ -282,12 +287,14 @@ def web_switch_channel():
     channel = data.get("channel")
     if not channel:
         return jsonify({"error": "No channel provided"}), 400
-    play_transition_then_load(channel)
+    # For manual switching via the web, use random offset.
+    play_transition_then_load(channel, use_random_offset=True)
     return jsonify({"status": "success", "channel": channel})
 
 @app.route("/next_video", methods=["POST"])
 def web_next_video():
-    play_transition_then_next()
+    # For manual next video, use random offset.
+    play_transition_then_next(use_random_offset=True)
     return jsonify({"status": "success", "action": "next_video"})
 
 @app.route("/set_auto_mode", methods=["POST"])
